@@ -1,3 +1,19 @@
+2003-08-19  Christoph Wedler  <Christoph.Wedler@sap.com>
+
+	* session.el 2.2a.
+
+2003-07-22  Christoph Wedler  <wedler@users.sourceforge.net>
+
+	* session.el (session-find-file-hook): Don't display "Mark set".
+	From Glenn Morris <gmorris@ast.cam.ac.uk>.
+
+2003-04-04  Christoph Wedler  <wedler@users.sourceforge.net>
+
+	* session.el: Provide possibility for other packages like template
+	v3.1c or higher to disable the restoration of places.
+	(session-find-file-hook): Don't restore places if `this-command'
+	has value `session-disable'.
+
 2003-03-14  Christoph Wedler  <wedler@users.sourceforge.net>
 
 	* session.el 2.2 is released.
