@@ -99,7 +99,7 @@
 ;;;;##########################################################################
 
 
-(defconst session-version "2.1a"
+(defconst session-version "2.1b"
   "Current version of package session.
 Check <http://emacs-session.sourceforge.net/> for the newest.")
 
@@ -1182,13 +1182,13 @@ prefix argument 0.  See `kill-emacs-hook'."
 		    (error nil))))
 	   (session-save-registers)
 	   (run-hooks 'session-before-save-hook)
-	   (if (file-exists-p session-save-file)
-	       (delete-file session-save-file))
 	   (condition-case var
 	       (progn
+		 (if (file-exists-p session-save-file)
+		     (delete-file session-save-file))
 		 (make-directory (file-name-directory session-save-file) t)
 		 (write-region (point-min) (point-max) session-save-file))
-	     (file-error
+	     (error			; efs would signal `ftp-error'
 	      (or (y-or-n-p "Could not write session file.  Exit anyway? ")
 		  (while t		; XEmacs: `signal-error'
 		    (signal (car var) (cdr var))))))

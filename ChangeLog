@@ -1,3 +1,15 @@
+2002-06-07  Christoph Wedler  <wedler@users.sourceforge.net>
+
+	* session.el 2.1b.
+
+2002-06-04  Christoph Wedler  <wedler@users.sourceforge.net>
+
+	* session.el: Make sure that the user is always asked whether to
+	exit, if the session file could not be written because...
+	(session-save-session): ...the directory is not writable.
+	Patch by Le Wang <le.wang@sun.com>.
+	(session-save-session): ...the session file is remote.
+
 2002-05-24  Christoph Wedler  <wedler@users.sourceforge.net>
 
 	* session.el 2.1a.
