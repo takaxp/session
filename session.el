@@ -3,7 +3,7 @@
 ;; Copyright 1996-1999, 2001-2002 Free Software Foundation, Inc.
 ;;
 ;; Author: Christoph Wedler <wedler@users.sourceforge.net>
-;; Version: 2.1
+;; Version: 2.1x
 ;; Keywords: session, session management, desktop, data, tools
 ;; X-URL: http://emacs-session.sourceforge.net/
 
@@ -99,7 +99,7 @@
 ;;;;##########################################################################
 
 
-(defconst session-version "2.1"
+(defconst session-version "2.1a"
   "Current version of package session.
 Check <http://emacs-session.sourceforge.net/> for the newest.")
 
@@ -180,8 +180,9 @@ with element.  To enable, include
   "*Max length of strings in submenus of the File menu.
 Value has the form MAX or (MAX . NAME-THRESHOLD).  If the second form is
 used and the length returned by `buffer-name' is longer than
-NAME-THRESHOLD, the maximum length will be shortened accordingly.  A
-negative number -MAX stands for (MAX . 0)."
+NAME-THRESHOLD, the maximum length will be shortened accordingly.
+
+Deprecated: a negative number -MAX stands for (MAX . 0)."
   :group 'session-miscellaneous
   :type '(choice (cons (integer :tag "Max. length" 50)
 		       (integer :tag "Name threshold" 20))
@@ -229,7 +230,9 @@ not exclude any file."
 ;; calling `abbrev-file-name' on remote files opens the connection!
 (defvar session-abbrev-inhibit-function
   (cond ((fboundp 'file-remote-p) 'file-remote-p)
+	;; maybe I should define my own `file-remote-p', doesn't exist in Emacs
 	((fboundp 'efs-ftp-path) 'efs-ftp-path)
+	((fboundp 'ange-ftp-ftp-name) 'ange-ftp-ftp-name)
 	((fboundp 'ange-ftp-ftp-path) 'ange-ftp-ftp-path))
   "Function used to determine whether to abbreviate file name.
 A file name is not abbreviated if this function returns non-nil when
@@ -307,7 +310,7 @@ It affects `session-globals-regexp' but not `session-globals-include'."
 
 (defcustom session-globals-include '((kill-ring 10)
 				     (session-file-alist 100 t)
-				     (file-name-history 100))
+				     (file-name-history 200))
   "Global variables to be saved between sessions.
 Each element has one of the following forms:
   NAME,
@@ -420,8 +423,8 @@ Used by `session-jump-to-last-change' with positive prefix argument."
 (defcustom session-use-truenames
   (and (string= (session-abbreviate-file-name (file-truename "~")) "~")
        (if (and (string-match "XEmacs" emacs-version)
-		(fboundp 'console-type)
-		(eq (console-type) 'mswindows))
+		(boundp 'system-type)
+		(eq system-type 'windows-nt))
 	   'session-xemacs-buffer-local-mswindows-file-p
 	 t))
   "*Whether to use the canonical file names when saving/restoring places.
@@ -1230,10 +1233,11 @@ prefix argument 0.  See `kill-emacs-hook'."
 ;;;  Minibuffer history completion, see XEmacs' list-mode
 ;;;===========================================================================
 
+
 (defvar session-history-help-string
   '(concat (if (device-on-window-system-p)
 	       (substitute-command-keys "Click \\<list-mode-map>\\[list-mode-item-mouse-selected] on a history element to select it.\n") "")
-	   (substitute-command-keys "In this buffer, type RET to select the element near point."))
+	   (substitute-command-keys "In this buffer, type RET to select the element near point.\n\n"))
   "Form the evaluate to get a help string for history elements.")
 
 (defun session-minibuffer-history-help ()
@@ -1265,21 +1269,26 @@ not work if the minibuffer is non-empty."
 ;; easymenu.el is for top-level menus only...
 (defun session-add-submenu (menu)
   "Add the menu MENU to the beginning of the File menu in the menubar.
-See `easy-menu-define' for the format of MENU."
+If the \"File\" menu does not exist, no submenu is added.  See
+`easy-menu-define' for the format of MENU."
   (when menu
     (if (string-match "XEmacs" emacs-version)
-	(progn
-	  (add-submenu '("File") menu "Open..."))
-      (when (>= emacs-major-version 21)
-	(let ((keymap (easy-menu-create-menu (car menu) (cdr menu))))
-	  ;; `easy-menu-get-map' doesn't get the right one => use hard-coded
-	  (define-key menu-bar-files-menu (vector (intern (car menu)))
-	    (cons 'menu-item
-		  (cons (car menu)
-			(if (not (symbolp keymap))
-			    (list keymap)
-			  (cons (symbol-function keymap)
-				(get keymap 'menu-prop)))))))))))
+	(and (featurep 'menubar)
+	     (find-menu-item default-menubar '("File"))
+	     (let ((current-menubar default-menubar)) ;#dynamic
+	       ;; XEmacs-20.4 `add-submenu' does not have 4th arg IN-MENU
+	       (add-submenu '("File") menu "Open...")))
+      (and (>= emacs-major-version 21)
+	   (boundp 'menu-bar-files-menu)
+	   (let ((keymap (easy-menu-create-menu (car menu) (cdr menu))))
+	     ;; `easy-menu-get-map' doesn't get the right one => use hard-coded
+	     (define-key menu-bar-files-menu (vector (intern (car menu)))
+	       (cons 'menu-item
+		     (cons (car menu)
+			   (if (not (symbolp keymap))
+			       (list keymap)
+			     (cons (symbol-function keymap)
+				   (get keymap 'menu-prop)))))))))))
 
 ;;;###autoload
 (defun session-initialize (&rest dummies)
@@ -1342,17 +1351,24 @@ this function to `after-init-hook'."
     (session-add-submenu '("Open...recently visited"
 			   :included file-name-history
 			   :filter session-file-opened-menu-filter))
-    (when (string-match "XEmacs" emacs-version)	; Emacs uses own one
-      (add-submenu '("Edit")
-		   '("Select and Paste"
-		     :included kill-ring
-		     :filter session-yank-menu-filter)
-		   (cond ((find-menu-item current-menubar '("Edit" "Delete"))
-			  "Delete")	; why just BEFORE, not AFTER...
-			 ((find-menu-item current-menubar '("Edit" "Paste"))
-			  "Paste")
-			 ((find-menu-item current-menubar '("Edit" "Undo"))
-			  "Undo")))))
+    (and (string-match "XEmacs" emacs-version)	; Emacs uses own one
+	 (featurep 'menubar)
+	 (find-menu-item default-menubar '("Edit"))
+	 (let ((current-menubar default-menubar))
+	   ;; XEmacs-20.4 `add-submenu' does not have 4th arg IN-MENU
+	   (add-submenu '("Edit")
+			'("Select and Paste"
+			  :included kill-ring
+			  :filter session-yank-menu-filter)
+			(cond ((find-menu-item default-menubar
+					       '("Edit" "Delete"))
+			       "Delete") ; why just BEFORE, not AFTER...
+			      ((find-menu-item default-menubar
+					       '("Edit" "Paste"))
+			       "Paste")
+			      ((find-menu-item default-menubar
+					       '("Edit" "Undo"))
+			       "Undo"))))))
   (when (or (eq session-initialize t)
 	    (memq 'session session-initialize))
     (add-hook 'kill-emacs-hook 'session-save-session)

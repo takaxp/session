@@ -1,3 +1,21 @@
+2002-05-24  Christoph Wedler  <wedler@users.sourceforge.net>
+
+	* session.el 2.1a.
+
+2002-05-16  Christoph Wedler  <wedler@users.sourceforge.net>
+
+	* session.el: When adding submenus, always check for menu support
+	and parent menus, always change default menubar.
+	(session-add-submenu): Check for "File" menu.
+	(session-initialize): Check for "Edit" menu.
+
+	* session.el (session-globals-include): By default, keep 200
+	instead 100 entries in `file-name-history'.
+	(session-history-help-string): Append two newlines to string.
+	(session-abbrev-inhibit-function): Use `ange-ftp-ftp-name' if
+	fboundp, is the one defined in Emacs.
+	(session-use-truenames): Use correct test whether on Windows-NT.
+
 2002-02-27  Christoph Wedler  <wedler@users.sourceforge.net>
 
 	* session 2.1 is released.
