@@ -1,3 +1,34 @@
+2002-08-30  Christoph Wedler  <wedler@users.sourceforge.net>
+
+	* session.el 2.1c.
+
+2002-08-29  Christoph Wedler  <wedler@users.sourceforge.net>
+
+	* session.el: Save session file as private file.
+	(session-save-file-modes): New variable.
+	(session-save-session): Use it.
+	(session-use-truenames-default): New constant.
+	(session-use-truenames): Use it.
+
+	* session.el: Better Emacs/XEmacs compatibility handling.
+	(session-emacs-xemacs): New compile-time macro.
+	(session-save-file-coding-system): Use it.
+	(session-abbrev-file-name): Ditto.
+	(session-save-session): Ditto.
+	(session-minibuffer-history-help): Ditto.
+	(session-add-submenu): Ditto.
+	(session-initialize): Ditto.
+	(session-abbreviate-file-name): Deletia.
+	(session-display-completion-list): Deletia.
+
+2002-06-25  Christoph Wedler  <wedler@users.sourceforge.net>
+
+	* session.el: Use same sequence for the new two File submenus
+	on Emacs and XEmacs, the XEmacs one was the intended one.
+	Suggested by Le Wang <le.wang@sun.com>.
+	(session-add-submenu): No hardcoded BEFORE for `add-submenu'.
+	(session-initialize): Change sequence of `session-add-submenu's.
+
 2002-06-07  Christoph Wedler  <wedler@users.sourceforge.net>
 
 	* session.el 2.1b.

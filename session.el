@@ -73,17 +73,21 @@
   (defvar menu-bar-files-menu)
   (defvar yank-menu)
   (defvar minibuffer-local-ns-map))
+;; there is no good way to avoid warnings for functions missing in
+;; Emacs/XEmacs, here:
+;;  * menu-bar-update-yank-menu
+
+(eval-when-compile
+  (defmacro session-emacs-xemacs (&rest args)
+    (let ((xemacsp (string-match "XEmacs" emacs-version)) code)
+      (while args
+	(cond ((eq (car args) :emacs)  (if xemacsp (pop args)))
+	      ((eq (car args) :xemacs) (or xemacsp (pop args)))
+	      (t (push (car args) code)))
+	(pop args))
+      (apply 'append (nreverse code)))))
 
 (eval-and-compile
-  (if (string-match "XEmacs" emacs-version)
-      (progn
-	;; the XEmacs version should have an optional NOT-HACK-HOMEDIR
-	(defun session-abbreviate-file-name (filename)
-	  (abbreviate-file-name filename t))
-	(defalias 'session-display-completion-list 'display-completion-list))
-    (defalias 'session-abbreviate-file-name 'abbreviate-file-name)
-    (defun session-display-completion-list (completions &rest cl-keys)
-      (display-completion-list completions)))
   (defalias 'session-subst-char-in-string
     (if (fboundp 'subst-char-in-string) 'subst-char-in-string
       'session-subst-char-in-string-0))
@@ -99,7 +103,7 @@
 ;;;;##########################################################################
 
 
-(defconst session-version "2.1b"
+(defconst session-version "2.1c"
   "Current version of package session.
 Check <http://emacs-session.sourceforge.net/> for the newest.")
 
@@ -243,10 +247,10 @@ called with the file name.")
   "Directory separator character for session menus.")
 
 (defvar session-save-file-coding-system
-  (if (featurep 'xemacs)
-      (and (featurep 'mule) 'escape-quoted)
-    ;; used `emacs-mule' but this fails with X-Symbol characters...
-    'iso-latin-1-with-esc)
+  (session-emacs-xemacs
+   :emacs 'iso-latin-1-with-esc
+   ;; used `emacs-mule' but this fails with X-Symbol characters...
+   :xemacs (and (featurep 'mule) 'escape-quoted))
   "Coding system to use when writing `session-save-file' if non-nil.")
 
 
@@ -282,6 +286,13 @@ ring variables.  See \\[session-save-session] for details."
   :group 'session-globals
   :type 'file)
 
+(defcustom session-save-file-modes 384
+  "Mode bits of session save file, as an integer, or nil.
+After writing `session-save-file', set mode bits of that file to this
+value if it is non-nil."
+  :group 'session-globals
+  :type '(choice (const :tag "Don't change" nil) integer))
+  
 (defvar session-before-save-hook nil
   "Hook to be run before `session-save-file' is saved.
 The functions are called after the global variables are written,
@@ -420,13 +431,15 @@ Used by `session-jump-to-last-change' with positive prefix argument."
 ;;		  (regexp-quote (abbreviate-file-name (file-truename "~")))
 ;;		  "\\)\\(/\\|\\'\\)"))))
 
-(defcustom session-use-truenames
-  (and (string= (session-abbreviate-file-name (file-truename "~")) "~")
-       (if (and (string-match "XEmacs" emacs-version)
-		(boundp 'system-type)
-		(eq system-type 'windows-nt))
-	   'session-xemacs-buffer-local-mswindows-file-p
-	 t))
+(defconst session-use-truenames-default
+  (session-emacs-xemacs
+   :emacs  (string= (abbreviate-file-name (file-truename "~")) "~")
+   :xemacs (and (string= (abbreviate-file-name (file-truename "~") t) "~")
+		(if (eq system-type 'windows-nt)
+		    'session-xemacs-buffer-local-mswindows-file-p
+		  t))))
+
+(defcustom session-use-truenames session-use-truenames-default
   "*Whether to use the canonical file names when saving/restoring places.
 If a function, it is called with no argument and returns whether to use
 the canonical names of files.  If non-nil, store and check file names
@@ -845,7 +858,7 @@ home directory."
 	   (or (not (fboundp session-abbrev-inhibit-function))
 	       (funcall session-abbrev-inhibit-function name)))
       name
-    (session-abbreviate-file-name name)))
+    (session-emacs-xemacs (abbreviate-file-name name) :xemacs (t))))
 
 
 ;;;===========================================================================
@@ -1187,11 +1200,15 @@ prefix argument 0.  See `kill-emacs-hook'."
 		 (if (file-exists-p session-save-file)
 		     (delete-file session-save-file))
 		 (make-directory (file-name-directory session-save-file) t)
-		 (write-region (point-min) (point-max) session-save-file))
+		 (write-region (point-min) (point-max) session-save-file)
+		 (if session-save-file-modes
+		     (set-file-modes session-save-file
+				     session-save-file-modes)))
 	     (error			; efs would signal `ftp-error'
 	      (or (y-or-n-p "Could not write session file.  Exit anyway? ")
-		  (while t		; XEmacs: `signal-error'
-		    (signal (car var) (cdr var))))))
+		  (session-emacs-xemacs
+		   :emacs (signal) :xemacs (signal-error)
+		   ((car var) (cdr var))))))
 	   (kill-buffer (current-buffer))))))
 
 (defun session-save-registers ()
@@ -1243,18 +1260,19 @@ prefix argument 0.  See `kill-emacs-hook'."
 (defun session-minibuffer-history-help ()
   "List history of current minibuffer type.
 In Emacs, the *History* buffer talks about \"completions\" instead
-\"history elements\".  In XEmacs before 21.4.7, selecting an entry might
+\"history elements\".  In XEmacs before 21.4.9, selecting an entry might
 not work if the minibuffer is non-empty."
   (interactive)
   (let ((history (symbol-value minibuffer-history-variable)))
     (message nil)
     (if history
 	(with-output-to-temp-buffer "*History*"
-	  (session-display-completion-list
-	   (sort history #'string-lessp)
-	   :help-string session-history-help-string
-	   :completion-string
-	   "Elements in the history are:")
+	  (session-emacs-xemacs
+	   (display-completion-list (sort history #'string-lessp))
+	   :xemacs (:help-string
+		    session-history-help-string
+		    :completion-string
+		    "Elements in the history are:"))
 	  (save-excursion
 	    (set-buffer standard-output)
 	    (setq completion-base-size 0)))
@@ -1266,29 +1284,36 @@ not work if the minibuffer is non-empty."
 ;;;  Set hooks, load session file
 ;;;===========================================================================
 
-;; easymenu.el is for top-level menus only...
+;; easymenu.el is for top-level menus only...  both Emacs and XEmacs could
+;; profit from a better menu interface...
 (defun session-add-submenu (menu)
   "Add the menu MENU to the beginning of the File menu in the menubar.
 If the \"File\" menu does not exist, no submenu is added.  See
 `easy-menu-define' for the format of MENU."
-  (when menu
-    (if (string-match "XEmacs" emacs-version)
-	(and (featurep 'menubar)
-	     (find-menu-item default-menubar '("File"))
-	     (let ((current-menubar default-menubar)) ;#dynamic
-	       ;; XEmacs-20.4 `add-submenu' does not have 4th arg IN-MENU
-	       (add-submenu '("File") menu "Open...")))
-      (and (>= emacs-major-version 21)
+  (session-emacs-xemacs
+   (and menu)
+   :emacs ((>= emacs-major-version 21)
 	   (boundp 'menu-bar-files-menu)
 	   (let ((keymap (easy-menu-create-menu (car menu) (cdr menu))))
-	     ;; `easy-menu-get-map' doesn't get the right one => use hard-coded
+	     ;; `easy-menu-get-map' doesn't get the right one => use
+	     ;; hard-coded
 	     (define-key menu-bar-files-menu (vector (intern (car menu)))
 	       (cons 'menu-item
 		     (cons (car menu)
 			   (if (not (symbolp keymap))
 			       (list keymap)
 			     (cons (symbol-function keymap)
-				   (get keymap 'menu-prop)))))))))))
+				   (get keymap 'menu-prop))))))))
+   :xemacs ((featurep 'menubar)
+	    (let ((current-menubar default-menubar) ;#dynamic
+		  (first (cadar (find-menu-item default-menubar '("File")))))
+	      (when first
+		;; XEmacs-20.4 `add-submenu' does not have 4th arg IN-MENU
+		(add-submenu '("File") menu
+			     ;; arg BEFORE cannot be retrieved by any
+			     ;; menubar function -- great...
+			     (cond ((vectorp first) (aref first 0))
+				   ((consp first) (car first)))))))))
 
 ;;;###autoload
 (defun session-initialize (&rest dummies)
@@ -1319,26 +1344,30 @@ this function to `after-init-hook'."
   (when (or (eq session-initialize t)
 	    (memq 'keys session-initialize))
     (condition-case nil
-	(progn
-	  (define-key ctl-x-map [(undo)] 'session-jump-to-last-change)
-	  (define-key ctl-x-map [(control ?\/)] 'session-jump-to-last-change)
-	  (define-key minibuffer-local-map [(meta ?\?)]
+	(session-emacs-xemacs
+	 (progn
+	   (define-key ctl-x-map [(undo)] 'session-jump-to-last-change)
+	   (define-key ctl-x-map [(control ?\/)] 'session-jump-to-last-change)
+	   (define-key minibuffer-local-map [(meta ?\?)]
+	     'session-minibuffer-history-help))
+	 :xemacs
+	  ;; C-down-mouse-3 pops up mode menu under Emacs
+	 ((define-key global-map [(control button3)] 'session-popup-yank-menu))
+	 :emacs
+	  ;; Emacs doesn't seem to have keymap inheritance...
+	 ((define-key minibuffer-local-completion-map [(meta ?\?)]
 	    'session-minibuffer-history-help)
-	  (if (string-match "XEmacs" emacs-version)
-	      ;; C-down-mouse-3 pops up mode menu under Emacs
-	      (define-key global-map [(control button3)]
-		'session-popup-yank-menu)
-	    ;; Emacs doesn't seem to have keymap inheritance...
-	    (define-key minibuffer-local-completion-map [(meta ?\?)]
-	      'session-minibuffer-history-help)
-	    (define-key minibuffer-local-must-match-map [(meta ?\?)]
-	      'session-minibuffer-history-help)
-	    (define-key minibuffer-local-ns-map [(meta ?\?)]
-	      'session-minibuffer-history-help)))
+	  (define-key minibuffer-local-must-match-map [(meta ?\?)]
+	    'session-minibuffer-history-help)
+	  (define-key minibuffer-local-ns-map [(meta ?\?)]
+	    'session-minibuffer-history-help)))
       (error nil)))
   (when (or (eq session-initialize t)
 	    (memq 'menus session-initialize))
     (add-hook 'find-file-hooks 'session-set-file-name-history)
+    (session-add-submenu '("Open...recently visited"
+			   :included file-name-history
+			   :filter session-file-opened-menu-filter))
     (session-add-submenu '("Open...recently changed"
 			   :included session-file-alist
 			   :filter session-file-changed-menu-filter
@@ -1348,27 +1377,24 @@ this function to `after-init-hook'."
 			    :keys (session-toggle-permanent-flag nil t)
 			    :active buffer-file-name]
 			   "---"))
-    (session-add-submenu '("Open...recently visited"
-			   :included file-name-history
-			   :filter session-file-opened-menu-filter))
-    (and (string-match "XEmacs" emacs-version)	; Emacs uses own one
-	 (featurep 'menubar)
-	 (find-menu-item default-menubar '("Edit"))
-	 (let ((current-menubar default-menubar))
-	   ;; XEmacs-20.4 `add-submenu' does not have 4th arg IN-MENU
-	   (add-submenu '("Edit")
-			'("Select and Paste"
-			  :included kill-ring
-			  :filter session-yank-menu-filter)
-			(cond ((find-menu-item default-menubar
-					       '("Edit" "Delete"))
-			       "Delete") ; why just BEFORE, not AFTER...
-			      ((find-menu-item default-menubar
-					       '("Edit" "Paste"))
-			       "Paste")
-			      ((find-menu-item default-menubar
-					       '("Edit" "Undo"))
-			       "Undo"))))))
+    (session-emacs-xemacs
+     :xemacs (and (featurep 'menubar)
+		  (find-menu-item default-menubar '("Edit"))
+		  (let ((current-menubar default-menubar))
+		    ;; XEmacs-20.4 `add-submenu' does not have 4th arg IN-MENU
+		    (add-submenu '("Edit")
+				 '("Select and Paste"
+				   :included kill-ring
+				   :filter session-yank-menu-filter)
+				 (cond ((find-menu-item default-menubar
+							'("Edit" "Delete"))
+					"Delete") ; why just BEFORE, not AFTER
+				       ((find-menu-item default-menubar
+							'("Edit" "Paste"))
+					"Paste")
+				       ((find-menu-item default-menubar
+							'("Edit" "Undo"))
+					"Undo")))))))
   (when (or (eq session-initialize t)
 	    (memq 'session session-initialize))
     (add-hook 'kill-emacs-hook 'session-save-session)
