@@ -16,8 +16,8 @@ point) of such a file when you revisit it.
 Files in the distribution (top level directory "session"):
 
  * README: this file
+ * INSTALL: how to install "lisp/session.el"
  * lisp/session.el: main file
  * lisp/ChangeLog: its detailed ChangeLog file
- * INSTALL: how to install "lisp/session.el"
 
 ## README ends here

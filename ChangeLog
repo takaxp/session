@@ -1,3 +1,37 @@
+2003-03-14  Christoph Wedler  <wedler@users.sourceforge.net>
+
+	* session.el 2.2 is released.
+
+2003-03-10  Christoph Wedler  <wedler@users.sourceforge.net>
+
+	* session.el: Improve "jump to the position of the last change",
+	now jumps successively to change positions by repeated invocation
+	of the command.  Better computation of undo positions.
+	Suggestion from Le Wang <lewang@yahoo.com>.
+	(session-jump-undo-remember): New user option.
+	(session-jump-to-last-change): Changed completely.
+	(session-jump-to-last-change-counter): New variable.
+	(session-jump-to-last-change-recent): New variable.
+	(session-undo-position): Changed completely.
+	(session-store-buffer-places): Change accordingly.
+
+	* session.el: Simplify Emacs/XEmacs compatiblity.
+	(cond-emacs-xemacs): New compile-time macro.
+	(defunx): New compile-time macro.
+	(session-save-file-coding-system): Use macro for value.
+	(session-after-load-save-file-hook): Ditto.
+	(session-use-truenames-default): Ditto.
+	(session-refresh-yank-menu): Define as `ignore' in XEmacs.
+	(session-subst-char-in-string-0): Deletia.
+	(session-subst-char-in-string): Use macro.
+	(session-abbrev-file-name): Ditto.
+	(session-store-buffer-places): Ditto.
+	(session-minibuffer-history-help): Ditto.
+	(session-add-submenu): Ditto.
+	(session-initialize): Ditto.
+	(session-menu-accelerator-support): Value is a function.
+	(session-menu-maybe-accelerator): Use it.
+
 2002-08-30  Christoph Wedler  <wedler@users.sourceforge.net>
 
 	* session.el 2.1c.

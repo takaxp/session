@@ -1,9 +1,9 @@
 ;;; session.el --- use variables, registers and buffer places across sessions
 
-;; Copyright 1996-1999, 2001-2002 Free Software Foundation, Inc.
+;; Copyright 1996-1999, 2001-2003 Free Software Foundation, Inc.
 ;;
 ;; Author: Christoph Wedler <wedler@users.sourceforge.net>
-;; Version: 2.1x
+;; Version: 2.2
 ;; Keywords: session, session management, desktop, data, tools
 ;; X-URL: http://emacs-session.sourceforge.net/
 
@@ -66,35 +66,81 @@
 (provide 'session)
 (require 'custom)
 
+;; General Emacs/XEmacs-compatibility compile-time macros
 (eval-when-compile
   (require 'cl)
-  (defvar current-menubar)
+  (defmacro cond-emacs-xemacs (&rest args)
+    (cond-emacs-xemacs-macfn
+     args "`cond-emacs-xemacs' must return exactly one element"))
+  (defun cond-emacs-xemacs-macfn (args &optional msg)
+    (if (atom args) args
+      (and (eq (car args) :@) (null msg) ; (:@ ...spliced...)
+	   (setq args (cdr args)
+		 msg "(:@ ....) must return exactly one element"))
+      (let ((ignore (if (string-match "XEmacs" emacs-version) :EMACS :XEMACS))
+	    (mode :BOTH) code)
+	(while (consp args)
+	  (if (memq (car args) '(:EMACS :XEMACS :BOTH)) (setq mode (pop args)))
+	  (if (atom args)
+	      (or args (error "Used selector %s without elements" mode))
+	    (or (eq ignore mode)
+		(push (cond-emacs-xemacs-macfn (car args)) code))
+	    (pop args)))
+	(cond (msg (if (or args (cdr code)) (error msg) (car code)))
+	      ((or (null args) (eq ignore mode)) (nreverse code))
+	      (t (nconc (nreverse code) args))))))
+  ;; Emacs/XEmacs-compatibility `defun': remove interactive "_" for Emacs, use
+  ;; existing functions when they are `fboundp', provide shortcuts if they are
+  ;; known to be defined in a specific Emacs branch (for short .elc)
+  (defmacro defunx (name arglist &rest definition)
+    (let ((xemacsp (string-match "XEmacs" emacs-version)) reuses first)
+      (while (memq (setq first (car definition))
+		   '(:try :emacs-and-try :xemacs-and-try
+			  :emacs-only :xemacs-only))
+	(if (memq first (if xemacsp
+			    '(:xemacs-and-try :xemacs-only)
+			  '(:emacs-and-try :emacs-only)))
+	    (setq reuses (cadr definition)
+		  definition nil)
+	  (unless (memq first '(:emacs-only :xemacs-only))
+	    (push (cadr definition) reuses)))
+	(setq definition (cddr definition)))
+      (if (and reuses (symbolp reuses))
+	  `(defalias ',name ',reuses)
+	(let* ((docstring (if (stringp (car definition)) (pop definition)))
+	       (spec (and (not xemacsp)
+			  (eq (car-safe (car definition)) 'interactive)
+			  (null (cddar definition))
+			  (cadar definition))))
+	  (if (and (stringp spec)
+		   (not (string-equal spec ""))
+		   (eq (aref spec 0) ?_))
+	      (setq definition
+		    (cons (if (string-equal spec "_")
+			      '(interactive)
+			    `(interactive ,(substring spec 1)))
+			  (cdr definition))))
+	  (if (null reuses)
+	      `(defun ,name ,arglist ,docstring
+		 ,@(cond-emacs-xemacs-macfn definition))
+	    ;; no dynamic docstring in this case
+	    `(eval-and-compile		; no warnings in Emacs
+	       (defalias ',name
+		 (cond ,@(mapcar (lambda (func) `((fboundp ',func) ',func))
+				 (nreverse reuses))
+		       (t ,(if definition
+			       `(lambda ,arglist ,docstring
+				  ,@(cond-emacs-xemacs-macfn definition))
+			     'ignore)))))))))))
+
+(eval-when-compile
+  ;; Emacs would define these when compiling as 0-arg functions...
+  ;;  (ignore-errors (defun split-path))
+  ;;  (ignore-errors (defun int-to-char))
   (defvar put-buffer-names-in-file-menu)
   (defvar menu-bar-files-menu)
   (defvar yank-menu)
   (defvar minibuffer-local-ns-map))
-;; there is no good way to avoid warnings for functions missing in
-;; Emacs/XEmacs, here:
-;;  * menu-bar-update-yank-menu
-
-(eval-when-compile
-  (defmacro session-emacs-xemacs (&rest args)
-    (let ((xemacsp (string-match "XEmacs" emacs-version)) code)
-      (while args
-	(cond ((eq (car args) :emacs)  (if xemacsp (pop args)))
-	      ((eq (car args) :xemacs) (or xemacsp (pop args)))
-	      (t (push (car args) code)))
-	(pop args))
-      (apply 'append (nreverse code)))))
-
-(eval-and-compile
-  (defalias 'session-subst-char-in-string
-    (if (fboundp 'subst-char-in-string) 'subst-char-in-string
-      'session-subst-char-in-string-0))
-  (defalias 'session-minibuffer-message
-    (if (fboundp 'minibuffer-message) 'minibuffer-message
-      (if (fboundp 'temp-minibuffer-message) 'temp-minibuffer-message
-	'ignore))))
 
 
 
@@ -103,7 +149,7 @@
 ;;;;##########################################################################
 
 
-(defconst session-version "2.1c"
+(defconst session-version "2.2"
   "Current version of package session.
 Check <http://emacs-session.sourceforge.net/> for the newest.")
 
@@ -228,8 +274,9 @@ not exclude any file."
 
 (defvar session-menu-accelerator-support
   (and (featurep 'menu-accelerator-support)
-       (fboundp 'submenu-generate-accelerator-spec))
-  "*Non-nil if menu accelerators are supported.")
+       (fboundp 'submenu-generate-accelerator-spec)
+       'submenu-generate-accelerator-spec)
+  "*Function to generate menu accelerators, or nil if not supported.")
 
 ;; calling `abbrev-file-name' on remote files opens the connection!
 (defvar session-abbrev-inhibit-function
@@ -247,10 +294,10 @@ called with the file name.")
   "Directory separator character for session menus.")
 
 (defvar session-save-file-coding-system
-  (session-emacs-xemacs
-   :emacs 'iso-latin-1-with-esc
+  (cond-emacs-xemacs
+   :EMACS 'iso-latin-1-with-esc
    ;; used `emacs-mule' but this fails with X-Symbol characters...
-   :xemacs (and (featurep 'mule) 'escape-quoted))
+   :XEMACS (and (featurep 'mule) 'escape-quoted))
   "Coding system to use when writing `session-save-file' if non-nil.")
 
 
@@ -299,9 +346,10 @@ The functions are called after the global variables are written,
 directly before the file is actually saved.")
 
 (defvar session-after-load-save-file-hook
-  (if (and (default-boundp 'yank-menu)
-	   (fboundp 'menu-bar-update-yank-menu))
-      '(session-refresh-yank-menu))
+  (cond-emacs-xemacs
+   :EMACS (and (default-boundp 'yank-menu)
+	       (fboundp 'menu-bar-update-yank-menu)
+	       '(session-refresh-yank-menu)))
   "Hook to be run after `session-save-file' has been loaded.
 The functions are called when the file has been successfully loaded.")
 
@@ -412,7 +460,16 @@ If non-nil, this function is added to `kill-buffer-hook'.")
 
 (defcustom session-jump-undo-threshold 240
   "*Number of character positions the undo position must be different.
-Used by `session-jump-to-last-change' with positive prefix argument."
+Without prefix arg, `session-jump-to-last-change' jumps successively to
+change positions which differ by at least `session-jump-undo-threshold'
+characters compared to the current position and previously visited
+change positions, see `session-jump-undo-remember'."
+  :group 'session-places
+  :type 'integer)
+
+(defcustom session-jump-undo-remember 2
+  "*Number of previously visited change positions checked additionally.
+See `session-jump-undo-threshold' and `session-jump-to-last-change'."
   :group 'session-places
   :type 'integer)
 
@@ -432,9 +489,9 @@ Used by `session-jump-to-last-change' with positive prefix argument."
 ;;		  "\\)\\(/\\|\\'\\)"))))
 
 (defconst session-use-truenames-default
-  (session-emacs-xemacs
-   :emacs  (string= (abbreviate-file-name (file-truename "~")) "~")
-   :xemacs (and (string= (abbreviate-file-name (file-truename "~") t) "~")
+  (cond-emacs-xemacs
+   :EMACS  (string= (abbreviate-file-name (file-truename "~")) "~")
+   :XEMACS (and (string= (abbreviate-file-name (file-truename "~") t) "~")
 		(if (eq system-type 'windows-nt)
 		    'session-xemacs-buffer-local-mswindows-file-p
 		  t))))
@@ -570,65 +627,156 @@ or was explicitly set with prefix argument 0 for command
 \\[session-jump-to-last-change].  Optional pairs (SYMBOL . VAR) are
 local variables with their values.")
 
+(defvar session-jump-to-last-change-counter 0
+  "Number of repeated invocations of `session-jump-to-last-change'.")
+
+(defvar session-jump-to-last-change-recent nil
+  "Current position and previously visited change positions.")
+
 
 ;;;===========================================================================
 ;;;  Position of last change
 ;;;===========================================================================
 
-(defun session-undo-position (pos undo-list)
-  "Return position of first real element in UNDO-LIST.
-POS should be nil."
-  (while (and (null pos) undo-list)
-    (setq pos (pop undo-list))
-    (if (consp pos)
-	(setq pos (if (stringp (car pos)) (cdr pos) (car pos))))
-    (setq pos (and (integerp pos) (abs pos))))
-  (cons pos undo-list))
+(defun session-undo-position (num pos1 pos2)
+  "Return a previous undo-position or set it.
+If argument NUM is nil, set `session-last-change' to the recomputed
+position given by argument POS1 and return POS1 normalized.
+
+Otherwise, return a previous undo-position or nil, if no such position
+can be found.  If `session-jump-to-last-change-counter' is nil, the
+position found is the stored last-change position.
+
+If POS1 and POS2 are nil, NUM is the number of undo-boundaries to skip.
+The position returned is the last change inside the corresponding undo
+step.
+
+Otherwise, NUM is the number of undo entries to skip.  The position
+returned is the last change after these entries outside the range from
+POS1 to POS2.  Increment `session-jump-to-last-change-counter' by the
+number of entries skipped additionally."
+  (let ((undo-list (and (consp buffer-undo-list) buffer-undo-list))
+	back-list pos len elem)
+    (while (and undo-list (null (car undo-list))) (pop undo-list))
+    (while undo-list
+      (setq elem (pop undo-list))
+      (cond ((atom elem)		; marker position
+	     (when (or elem pos1)
+	       (if (integerp elem) (setq pos elem) (setq elem t))))
+	    ((stringp (car elem))	; deletion: (TEXT . POSITION)
+	     (setq pos (abs (cdr elem)) len (length (car elem)))
+	     (push (list* pos (+ pos len) (- len)) back-list)
+	     (when pos1
+	       (if (>  pos1 pos) (incf pos1 len))
+	       (if (>= pos2 pos) (incf pos2 len))))
+	    ((integerp (car elem))	; insertion: (START . END)
+	     (setq pos (car elem) len (- (cdr elem) pos))
+	     (push (list* pos pos len) back-list)
+	     (setq pos (cdr elem))	; compare/jump with/to end of insertion
+	     (when pos1
+	       (if (> pos1 pos)
+		   (setq pos1 (if (> pos1 (cdr elem)) (- pos1 len) pos)))
+	       (if (> pos2 pos)
+		   (setq pos2 (if (> pos2 (cdr elem)) (- pos2 len) pos)))))
+	    (t
+	     (setq elem t)))
+      (cond ((or (eq elem t) (null num))
+	     (if pos1 (setq pos nil)))
+	    ((and pos1 (> num 0))	; next distance
+	     (decf num)
+	     (setq pos nil))
+	    ((and pos1 (<= pos1 pos) (<= pos pos2))
+	     (incf session-jump-to-last-change-counter)
+	     (setq pos nil))
+	    ((or (zerop num) (and (null elem) (zerop (decf num))))
+	     ;;(if pos1 (message "counter: %d, pos: %d, pos: %d, pos2: %d" session-jump-to-last-change-counter pos pos1 pos2))
+	     (setq undo-list nil))))
+    (cond ((null num)			; point as `session-last-change'
+	   (setq session-last-change pos1
+		 pos session-last-change))
+	  ((or (null pos) (> num 0))
+	   (setq session-jump-to-last-change-counter nil)
+	   (setq pos session-last-change))
+	  (t				; pos in undo-list
+	   (if session-jump-to-last-change-counter
+	       (incf session-jump-to-last-change-counter))
+	   (setq back-list (cdr back-list))))
+    (when pos
+      (while back-list
+	(setq elem (pop back-list))
+	(cond ((> pos (cadr elem))
+	       (incf pos (cddr elem)))
+	      ((> pos (car elem))
+	       (setq pos (car elem)))))
+      pos)))
 
 (defun session-jump-to-last-change (&optional arg)
-  "Jump to position of abs(ARG)'th last change.
-With positive argument, two changes are considered different if their
-positions differ by at least `session-jump-undo-threshold' character
-positions.  With negative argument, two changes are considered different
-if there is an undo boundary in the `buffer-undo-list' between them.
+  "Jump to the position of the last change.
+Without prefix arg, jump successively to previous change positions which
+differ by at least `session-jump-undo-threshold' characters by repeated
+invocation of this command.  With prefix argument 0, jump to end of last
+change.  With numeric prefix argument, jump to start of first change in
+the abs(ARG)s undo block in the `buffer-undo-list'.
 
-In both cases, use position in `session-last-change' as oldest position.
-With prefix argument ARG=0, set `point' as oldest position."
-  (interactive "p")
-  (if (zerop arg)
-      (progn
-	(setq session-last-change (point))
+With non-numeric prefix argument (\\[universal-argument] only), set
+point as oldest change position.  It might change slightly if you jump
+to it due to intermediate insert/delete elements in the
+`buffer-undo-list'."
+  (interactive "P")
+  (if (consp arg)
+      (let ((pos (session-undo-position nil (point) (point)))
+	    (undo-list (and (consp buffer-undo-list) buffer-undo-list)))
+	(setq arg 1)
+	(while (and undo-list (null (car undo-list))) (pop undo-list))
+	(while undo-list (or (pop undo-list) (incf arg)))
 	(message "Store %d as special last-change position (%s %d %s)"
-		 session-last-change
+		 pos
 		 (substitute-command-keys "\\[universal-argument]")
-		 (let ((list (and (consp buffer-undo-list) buffer-undo-list)))
-		   (while list
-		     (or (car list) (setq arg (1- arg)))
-		     (setq list (cdr list)))
-		   (1- arg))
+		 arg
 		 (substitute-command-keys "\\[session-jump-to-last-change]")))
-    (let* ((undo-list (session-undo-position nil (and (consp buffer-undo-list)
-						      buffer-undo-list)))
-	   (pos (car undo-list)))
-      (if (< arg 0)
-	  (unless (zerop (setq arg (1+ arg)))
-	    (setq undo-list (cdr undo-list))
-	    (while (and (< arg 0) undo-list)
-	      (or (pop undo-list)
-		  (setq arg (1+ arg))))
-	    (setq pos (car (session-undo-position nil undo-list))))
-	(setq arg (1- arg))
-	(while (and (> arg 0)
-		    (car (setq undo-list
-			       (session-undo-position nil (cdr undo-list)))))
-	  (if (>= (abs (- (car undo-list) pos)) session-jump-undo-threshold)
-	      (setq pos (car undo-list)
-		    arg (1- arg))))
-	(or (zerop arg) (setq pos nil)))
-      (or pos (setq pos session-last-change))
-      (if pos
-	  (goto-char pos)
-	(message "Do not know position of last change")))))
+    ;; set and restrict previously visited undo positions --------------------
+    (push (point) session-jump-to-last-change-recent)
+    (if (and (null arg) (eq last-command 'session-jump-to-last-change-seq))
+	(let ((recent (nthcdr session-jump-undo-remember
+			      session-jump-to-last-change-recent)))
+	  (if recent (setcdr recent nil)))
+      (setcdr session-jump-to-last-change-recent nil)
+      (setq session-jump-to-last-change-counter 0))
+    (let ((pos (if arg
+		   (session-undo-position (abs (prefix-numeric-value arg))
+					  nil nil)
+		 (point))))
+      (unless arg
+	;; compute position, compare it with positions in
+	;; `session-jump-to-last-change-recent'
+	(let ((recent session-jump-to-last-change-recent) old pos1 pos2)
+	  (while recent
+	    (setq old (pop recent))
+	    (setq pos1 (- pos session-jump-undo-threshold)
+		  pos2 (+ pos session-jump-undo-threshold))
+	    ;;(message "pos: %d, old: %d, len: %d, counter: %d" pos old (length recent) session-jump-to-last-change-counter)
+	    (when (and (<= pos1 old) (<= old pos2))
+	      (setq pos (session-undo-position
+			 session-jump-to-last-change-counter pos1 pos2))
+	      (setq recent (and pos
+				session-jump-to-last-change-counter
+				session-jump-to-last-change-recent))))))
+      (cond ((null pos)
+	     (message (if (or arg (atom buffer-undo-list))
+			  "Do not know position of last change"
+			"Do not know position of last distant change")))
+	    ((< pos (point-min))
+	     (goto-char (point-min))
+	     (message "Change position outside visible region"))
+	    ((> pos (point-max))
+	     (goto-char (point-max))
+	     (message "Change position outside visible region"))
+	    (t
+	     (goto-char pos)
+	     (cond ((null session-jump-to-last-change-counter)
+		    (message "Jumped to stored last-change position"))
+		   ((null arg)
+		    (setq this-command 'session-jump-to-last-change-seq))))))))
 
 
 ;;;===========================================================================
@@ -636,7 +784,8 @@ With prefix argument ARG=0, set `point' as oldest position."
 ;;;===========================================================================
 
 ;; this function should be defined in menu-bar.el...
-(defun session-refresh-yank-menu ()
+(defunx session-refresh-yank-menu ()
+  :xemacs-only ignore
   "Refresh `yank-menu' according to `kill-ring'."
   (when (and (default-boundp 'yank-menu)
 	     (fboundp 'menu-bar-update-yank-menu))
@@ -651,11 +800,6 @@ bound to nil."
   (interactive "*p")
   (let ((interprogram-paste-function nil)) ;#dynamic
     (yank arg)))
-
-(defun session-no-selection-hook ()
-  "XEmacs menubar bug workaround in `menu-no-selection-hook'."
-  (if (eq this-command 'run-hooks)	; without breaks menubar
-      (setq this-command last-command)))
 
 (defun session-popup-yank-menu (event)
   ;; checkdoc-params: (event)
@@ -728,8 +872,8 @@ the two parts of a abbreviated menu item name."
 	    active)))
 
 ;; from EMACS-20.4/lisp/subr.el:
-(defun session-subst-char-in-string-0 (fromchar tochar string
-						&optional inplace)
+(defunx session-subst-char-in-string (fromchar tochar string &optional inplace)
+  :try subst-char-in-string
   "Replace FROMCHAR with TOCHAR in STRING each time it occurs.
 Unless optional argument INPLACE is non-nil, return a new string."
   (let ((i (length string))
@@ -832,7 +976,7 @@ The items in MENU will be modified to add accelerator specifications if
 `session-menu-accelerator-support' is non-nil."
   (nconc (mapcar 'session-change-menu-item menu-items)
 	 (if session-menu-accelerator-support
-	     (submenu-generate-accelerator-spec menu)
+	     (funcall session-menu-accelerator-support menu)
 	   menu)))
 
 (defun session-change-menu-item (item)
@@ -858,7 +1002,7 @@ home directory."
 	   (or (not (fboundp session-abbrev-inhibit-function))
 	       (funcall session-abbrev-inhibit-function name)))
       name
-    (session-emacs-xemacs (abbreviate-file-name name) :xemacs (t))))
+    (cond-emacs-xemacs (abbreviate-file-name name :XEMACS t))))
 
 
 ;;;===========================================================================
@@ -1044,10 +1188,7 @@ becoming too old to be saved across session.  By default, only the first
 				 (and (<= (point-max) (buffer-size))
 				      (point-max))
 				 permanent
-				 (or (car (session-undo-position
-					   nil (and (consp buffer-undo-list)
-						    buffer-undo-list)))
-				     session-last-change))
+				 (session-undo-position 0 nil nil))
 			   store))
 	      (if (equal (caar session-file-alist) file-name)
 		  (setcar session-file-alist store)
@@ -1206,9 +1347,9 @@ prefix argument 0.  See `kill-emacs-hook'."
 				     session-save-file-modes)))
 	     (error			; efs would signal `ftp-error'
 	      (or (y-or-n-p "Could not write session file.  Exit anyway? ")
-		  (session-emacs-xemacs
-		   :emacs (signal) :xemacs (signal-error)
-		   ((car var) (cdr var))))))
+		  (cond-emacs-xemacs
+		   (:EMACS signal :XEMACS signal-error :BOTH
+			   (car var) (cdr var))))))
 	   (kill-buffer (current-buffer))))))
 
 (defun session-save-registers ()
@@ -1227,7 +1368,7 @@ prefix argument 0.  See `kill-emacs-hook'."
 		  from (car from))
 	  (setq to from))
 	(while (<= from to)
-	  (and (fboundp 'int-to-char) (numberp from)
+	  (and (numberp from) (fboundp 'int-to-char)
 	       (setq from (int-to-char from)))
 	  (setq register (get-register from))
 	  (cond ((null register))
@@ -1267,17 +1408,21 @@ not work if the minibuffer is non-empty."
     (message nil)
     (if history
 	(with-output-to-temp-buffer "*History*"
-	  (session-emacs-xemacs
-	   (display-completion-list (sort history #'string-lessp))
-	   :xemacs (:help-string
-		    session-history-help-string
-		    :completion-string
-		    "Elements in the history are:"))
+	  (cond-emacs-xemacs
+	   (display-completion-list
+	    (sort history #'string-lessp)
+	    :XEMACS
+	    :help-string session-history-help-string
+	    :completion-string "Elements in the history are:"))
 	  (save-excursion
 	    (set-buffer standard-output)
 	    (setq completion-base-size 0)))
       (ding)
       (session-minibuffer-message " [Empty history]"))))
+
+(defunx session-minibuffer-message (string)
+  :emacs-only  minibuffer-message
+  :xemacs-only temp-minibuffer-message)
 
 
 ;;;===========================================================================
@@ -1286,37 +1431,37 @@ not work if the minibuffer is non-empty."
 
 ;; easymenu.el is for top-level menus only...  both Emacs and XEmacs could
 ;; profit from a better menu interface...
-(defun session-add-submenu (menu)
+(defunx session-add-submenu (menu)
   "Add the menu MENU to the beginning of the File menu in the menubar.
 If the \"File\" menu does not exist, no submenu is added.  See
 `easy-menu-define' for the format of MENU."
-  (session-emacs-xemacs
-   (and menu)
-   :emacs ((>= emacs-major-version 21)
-	   (boundp 'menu-bar-files-menu)
-	   (let ((keymap (easy-menu-create-menu (car menu) (cdr menu))))
-	     ;; `easy-menu-get-map' doesn't get the right one => use
-	     ;; hard-coded
-	     (define-key menu-bar-files-menu (vector (intern (car menu)))
-	       (cons 'menu-item
-		     (cons (car menu)
-			   (if (not (symbolp keymap))
-			       (list keymap)
-			     (cons (symbol-function keymap)
-				   (get keymap 'menu-prop))))))))
-   :xemacs ((featurep 'menubar)
-	    (let ((current-menubar default-menubar) ;#dynamic
-		  (first (cadar (find-menu-item default-menubar '("File")))))
-	      (when first
-		;; XEmacs-20.4 `add-submenu' does not have 4th arg IN-MENU
-		(add-submenu '("File") menu
-			     ;; arg BEFORE cannot be retrieved by any
-			     ;; menubar function -- great...
-			     (cond ((vectorp first) (aref first 0))
-				   ((consp first) (car first)))))))))
+  (and menu
+       :EMACS
+       (>= emacs-major-version 21)
+       (boundp 'menu-bar-files-menu)
+       (let ((keymap (easy-menu-create-menu (car menu) (cdr menu))))
+	 ;; `easy-menu-get-map' doesn't get the right one => use hard-coded
+	 (define-key menu-bar-files-menu (vector (intern (car menu)))
+	   (cons 'menu-item
+		 (cons (car menu)
+		       (if (not (symbolp keymap))
+			   (list keymap)
+			 (cons (symbol-function keymap)
+			       (get keymap 'menu-prop)))))))
+       :XEMACS
+       (featurep 'menubar)
+       (let ((current-menubar default-menubar) ;#dynamic
+	     (first (cadar (find-menu-item default-menubar '("File")))))
+	 (when first
+	   ;; XEmacs-20.4 `add-submenu' does not have 4th arg IN-MENU
+	   (add-submenu '("File") menu
+			;; arg BEFORE cannot be retrieved by any
+			;; menubar function -- great...
+			(cond ((vectorp first) (aref first 0))
+			      ((consp first) (car first))))))))
 
 ;;;###autoload
-(defun session-initialize (&rest dummies)
+(defunx session-initialize (&rest dummies)
   ;; checkdoc-params: (dummies)
   "Initialize package session and read previous session file.
 Setup hooks and load `session-save-file', see `session-initialize'.  At
@@ -1341,26 +1486,24 @@ this function to `after-init-hook'."
     (add-hook 'find-file-hooks 'session-find-file-hook t)
     (add-hook 'find-file-not-found-hooks 'session-find-file-not-found-hook t)
     (add-hook 'kill-buffer-hook 'session-kill-buffer-hook))
-  (when (or (eq session-initialize t)
-	    (memq 'keys session-initialize))
+  (when (or (eq session-initialize t) (memq 'keys session-initialize))
     (condition-case nil
-	(session-emacs-xemacs
-	 (progn
-	   (define-key ctl-x-map [(undo)] 'session-jump-to-last-change)
-	   (define-key ctl-x-map [(control ?\/)] 'session-jump-to-last-change)
-	   (define-key minibuffer-local-map [(meta ?\?)]
-	     'session-minibuffer-history-help))
-	 :xemacs
+	(progn
+	  (define-key ctl-x-map [(undo)] 'session-jump-to-last-change)
+	  (define-key ctl-x-map [(control ?\/)] 'session-jump-to-last-change)
+	  (define-key minibuffer-local-map [(meta ?\?)]
+	    'session-minibuffer-history-help)
+	  :XEMACS
 	  ;; C-down-mouse-3 pops up mode menu under Emacs
-	 ((define-key global-map [(control button3)] 'session-popup-yank-menu))
-	 :emacs
+	  (define-key global-map [(control button3)] 'session-popup-yank-menu)
+	  :EMACS
 	  ;; Emacs doesn't seem to have keymap inheritance...
-	 ((define-key minibuffer-local-completion-map [(meta ?\?)]
+	  (define-key minibuffer-local-completion-map [(meta ?\?)]
 	    'session-minibuffer-history-help)
 	  (define-key minibuffer-local-must-match-map [(meta ?\?)]
 	    'session-minibuffer-history-help)
 	  (define-key minibuffer-local-ns-map [(meta ?\?)]
-	    'session-minibuffer-history-help)))
+	    'session-minibuffer-history-help))
       (error nil)))
   (when (or (eq session-initialize t)
 	    (memq 'menus session-initialize))
@@ -1377,24 +1520,24 @@ this function to `after-init-hook'."
 			    :keys (session-toggle-permanent-flag nil t)
 			    :active buffer-file-name]
 			   "---"))
-    (session-emacs-xemacs
-     :xemacs (and (featurep 'menubar)
-		  (find-menu-item default-menubar '("Edit"))
-		  (let ((current-menubar default-menubar))
-		    ;; XEmacs-20.4 `add-submenu' does not have 4th arg IN-MENU
-		    (add-submenu '("Edit")
-				 '("Select and Paste"
-				   :included kill-ring
-				   :filter session-yank-menu-filter)
-				 (cond ((find-menu-item default-menubar
-							'("Edit" "Delete"))
-					"Delete") ; why just BEFORE, not AFTER
-				       ((find-menu-item default-menubar
-							'("Edit" "Paste"))
-					"Paste")
-				       ((find-menu-item default-menubar
-							'("Edit" "Undo"))
-					"Undo")))))))
+    :XEMACS
+    (and (featurep 'menubar)
+	 (find-menu-item default-menubar '("Edit"))
+	 (let ((current-menubar default-menubar))
+	   ;; XEmacs-20.4 `add-submenu' does not have 4th arg IN-MENU
+	   (add-submenu '("Edit")
+			'("Select and Paste"
+			  :included kill-ring
+			  :filter session-yank-menu-filter)
+			(cond ((find-menu-item default-menubar
+					       '("Edit" "Delete"))
+			       "Delete") ; why just BEFORE, not AFTER
+			      ((find-menu-item default-menubar
+					       '("Edit" "Paste"))
+			       "Paste")
+			      ((find-menu-item default-menubar
+					       '("Edit" "Undo"))
+			       "Undo"))))))
   (when (or (eq session-initialize t)
 	    (memq 'session session-initialize))
     (add-hook 'kill-emacs-hook 'session-save-session)
