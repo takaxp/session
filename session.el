@@ -1286,36 +1286,38 @@ becoming too old to be saved across session.  By default, only the first
   (let ((file-name (session-buffer-file-name)))
     (when file-name
       (let ((permanent (nthcdr 5 (assoc file-name session-file-alist))))
-	(and (< arg 0) (car permanent)
-	     (setcar permanent nil))	; reset permanent in existing entry
-	(setq permanent (or (car permanent) (> arg 2)))
-	(if (or (and permanent (> arg 0))
-		(> arg 1)
-		(and (= arg 1)
-		     (funcall session-buffer-check-function (current-buffer))))
-	    (let ((locals session-locals-include)
-		  (store nil))
-	      (while locals
-		(if (if (functionp session-locals-include)
-			(funcall session-locals-predicate
-				 (car locals) (current-buffer))
-		      session-locals-predicate)
-		    (push (cons (car locals)
-				(symbol-value (car locals)))
-			  store))
-		(setq locals (cdr locals)))
-	      (setq store
-		    (nconc (list file-name
-				 (point) (mark t)
-				 (point-min)
-				 (and (<= (point-max) (buffer-size))
-				      (point-max))
-				 permanent
-				 (session-undo-position 0 nil nil))
-			   store))
-	      (if (equal (caar session-file-alist) file-name)
-		  (setcar session-file-alist store)
-		(push store session-file-alist))))))))
+	      (and (< arg 0) (car permanent)
+	           (setcar permanent nil))	; reset permanent in existing entry
+	      (setq permanent (or (car permanent) (> arg 2)))
+	      (if (or (and permanent (> arg 0))
+		            (> arg 1)
+		            (and (= arg 1)
+		                 (funcall session-buffer-check-function (current-buffer))))
+	          (let ((locals session-locals-include)
+		              (store nil))
+	            (while locals
+		            (if (if (functionp session-locals-include)
+			                  (funcall session-locals-predicate
+				                         (car locals) (current-buffer))
+		                  session-locals-predicate)
+		                (push (cons (car locals)
+				                        (symbol-value (car locals)))
+			                    store))
+		            (setq locals (cdr locals)))
+	            (setq store
+		                (nconc (list file-name
+				                         (point) (mark t)
+				                         (point-min)
+				                         (and (<= (point-max) (buffer-size))
+				                              (point-max))
+				                         permanent
+				                         (session-undo-position 0 nil nil))
+			                     store))
+              (unless (and session-set-file-name-exclude-regexp
+		                       (string-match session-set-file-name-exclude-regexp file-name))
+	              (if (equal (caar session-file-alist) file-name)
+		                (setcar session-file-alist store)
+		              (push store session-file-alist)))))))))
 
 (defun session-find-file-not-found-hook ()
   "Query the user to delete the permanent flag for a non-existent file.
