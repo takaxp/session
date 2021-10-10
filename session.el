@@ -126,7 +126,7 @@
 
 ;; General Emacs/XEmacs-compatibility compile-time macros
 (eval-when-compile
-  (require 'cl-lib)
+  (require 'cl)
   (defmacro cond-emacs-xemacs (&rest args)
     (cond-emacs-xemacs-macfn
      args "`cond-emacs-xemacs' must return exactly one element"))
@@ -180,7 +180,7 @@
 			  (cdr definition))))
 	  (if (null reuses)
 	      `(defun ,name ,arglist ,docstring
-		 ,@(cond-emacs-xemacs-macfn definition))
+		      ,@(cond-emacs-xemacs-macfn definition))
 	    ;; no dynamic docstring in this case
 	    `(eval-and-compile		; no warnings in Emacs
 	       (defalias ',name
@@ -326,9 +326,9 @@ not exclude any file."
 
 ;; calling `abbrev-file-name' on remote files opens the connection!
 (defvar session-abbrev-inhibit-function
-;; this will be renamed with the next release (when minimum is
-;; Emacs-22.1, jun 2007 and XEmacs 21.4.12, jan 2003) -> only there we have
-;; `define-obsolete-variable-alias'
+  ;; this will be renamed with the next release (when minimum is
+  ;; Emacs-22.1, jun 2007 and XEmacs 21.4.12, jan 2003) -> only there we have
+  ;; `define-obsolete-variable-alias'
   (cond ((fboundp 'file-remote-p) 'file-remote-p)
 	;;  `file-remote-p' doesn't exist in Emacs < 22.1
 	((fboundp 'efs-ftp-path) 'efs-ftp-path)
@@ -402,7 +402,7 @@ After writing `session-save-file', set mode bits of that file to this
 value if it is non-nil."
   :group 'session-globals
   :type '(choice (const :tag "Don't change" nil) integer))
-  
+
 (defvar session-before-save-hook nil
   "Hook to be run before `session-save-file' is saved.
 The functions are called after the global variables are written,
@@ -1055,7 +1055,7 @@ a file in the menu."
     (session-menu-maybe-accelerator menu-items (nreverse menu))))
 
 (defun session-file-prune-name (elem max-string)
-  "Prune name íf menu entry ELEM to use a miximum string length MAX-STRING."
+  "Prune name if menu entry ELEM to use a miximum string length MAX-STRING."
   (when (> (length elem) max-string)
     (let* ((sep-string (char-to-string session-directory-sep-char))
 	   (components (split-string elem (regexp-quote sep-string))))
@@ -1125,7 +1125,7 @@ of `file-name-history'.  This function is useful in `find-file-hooks'."
        buffer-file-name
        (not (string= (car file-name-history) buffer-file-name))
        (not (string= (car file-name-history) buffer-file-truename))
-;;       (file-exists-p buffer-file-name) (file-readable-p buffer-file-name)
+       ;;       (file-exists-p buffer-file-name) (file-readable-p buffer-file-name)
        (let ((name (session-abbrev-file-name buffer-file-name)))
 	 (unless (and session-set-file-name-exclude-regexp
 		      (string-match session-set-file-name-exclude-regexp name))
@@ -1286,38 +1286,38 @@ becoming too old to be saved across session.  By default, only the first
   (let ((file-name (session-buffer-file-name)))
     (when file-name
       (let ((permanent (nthcdr 5 (assoc file-name session-file-alist))))
-	      (and (< arg 0) (car permanent)
-	           (setcar permanent nil))	; reset permanent in existing entry
-	      (setq permanent (or (car permanent) (> arg 2)))
-	      (if (or (and permanent (> arg 0))
-		            (> arg 1)
-		            (and (= arg 1)
-		                 (funcall session-buffer-check-function (current-buffer))))
-	          (let ((locals session-locals-include)
-		              (store nil))
-	            (while locals
-		            (if (if (functionp session-locals-include)
-			                  (funcall session-locals-predicate
-				                         (car locals) (current-buffer))
-		                  session-locals-predicate)
-		                (push (cons (car locals)
-				                        (symbol-value (car locals)))
-			                    store))
-		            (setq locals (cdr locals)))
-	            (setq store
-		                (nconc (list file-name
-				                         (point) (mark t)
-				                         (point-min)
-				                         (and (<= (point-max) (buffer-size))
-				                              (point-max))
-				                         permanent
-				                         (session-undo-position 0 nil nil))
-			                     store))
+	(and (< arg 0) (car permanent)
+	     (setcar permanent nil))	; reset permanent in existing entry
+	(setq permanent (or (car permanent) (> arg 2)))
+	(if (or (and permanent (> arg 0))
+		(> arg 1)
+		(and (= arg 1)
+		     (funcall session-buffer-check-function (current-buffer))))
+	    (let ((locals session-locals-include)
+		  (store nil))
+	      (while locals
+		(if (if (functionp session-locals-include)
+			(funcall session-locals-predicate
+				 (car locals) (current-buffer))
+		      session-locals-predicate)
+		    (push (cons (car locals)
+				(symbol-value (car locals)))
+			  store))
+		(setq locals (cdr locals)))
+	      (setq store
+		    (nconc (list file-name
+				 (point) (mark t)
+				 (point-min)
+				 (and (<= (point-max) (buffer-size))
+				      (point-max))
+				 permanent
+				 (session-undo-position 0 nil nil))
+			   store))
               (unless (and session-set-file-name-exclude-regexp
-		                       (string-match session-set-file-name-exclude-regexp file-name))
-	              (if (equal (caar session-file-alist) file-name)
-		                (setcar session-file-alist store)
-		              (push store session-file-alist)))))))))
+		           (string-match session-set-file-name-exclude-regexp file-name))
+	        (if (equal (caar session-file-alist) file-name)
+		    (setcar session-file-alist store)
+		  (push store session-file-alist)))))))))
 
 (defun session-find-file-not-found-hook ()
   "Query the user to delete the permanent flag for a non-existent file.
