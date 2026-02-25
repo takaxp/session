@@ -1,5 +1,4 @@
-;;; session.el --- use variables, registers and buffer places across sessions
-
+;;; session.el --- use variables, registers and buffer places across sessions -*- lexical-binding: t; -*-
 ;; Copyright 1996, 1997, 1998, 1999, 2001, 2002, 2003, 2010, 2011
 ;; Free Software Foundation, Inc.
 ;;
