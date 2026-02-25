@@ -891,7 +891,7 @@ bound to nil."
   (let ((interprogram-paste-function nil)) ;#dynamic
     (yank arg)))
 
-(defun session-popup-yank-menu (event)
+(defun session-popup-yank-menu (_event)
   ;; checkdoc-params: (event)
   "Pop up a menu for inserting items in `kill-ring'."
   (interactive "e")
