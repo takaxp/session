@@ -1409,6 +1409,7 @@ using \\[save-buffers-kill-emacs] with prefix argument 0."
 	     (insert (format ";;; -*- coding: %S; -*-\n"
 			     session-save-file-coding-system)))
 	   (insert ";;; Automatically generated on " (current-time-string)
+		   " -*- lexical-binding: t; -*-"
 		   "\n;;; Invoked by " (user-login-name) "@" (system-name)
 		   " using " emacs-version "\n")
 	   ;; save global variables and registers ----------------------------
